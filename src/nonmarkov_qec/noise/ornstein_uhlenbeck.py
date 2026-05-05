@@ -84,4 +84,26 @@ class OUProcess:
         ndarray of shape (n_trajectories, n_steps + 1)
             Sampled trajectories, including the initial point at index 0.
         """
-        raise NotImplementedError("Implement in week 1, day 3-4.")
+        if n_steps < 0:
+            raise ValueError(f"n_steps must be >= 0, got {n_steps}")
+        if dt <= 0:
+            raise ValueError(f"dt must be > 0, got {dt}")
+
+        if rng is None:
+            rng = np.random.default_rng()
+
+        decay = np.exp(-dt / self.tau_c)
+        noise_std = self.sigma * np.sqrt(1.0 - np.exp(-2.0 * dt / self.tau_c))
+
+        out = np.empty((n_trajectories, n_steps + 1), dtype=np.float64)
+
+        if x0 is None:
+            out[:, 0] = rng.normal(0.0, self.sigma, size=n_trajectories)
+        else:
+            out[:, 0] = np.broadcast_to(np.asarray(x0, dtype=np.float64), (n_trajectories,))
+
+        xi = rng.standard_normal((n_trajectories, n_steps))
+        for i in range(n_steps):
+            out[:, i + 1] = decay * out[:, i] + noise_std * xi[:, i]
+
+        return out
