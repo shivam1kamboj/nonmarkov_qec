@@ -40,3 +40,6 @@ Thumbs.db
 results/
 *.npz
 !docs/figures/*.npz
+
+# Claude Code working files
+.claude/
