@@ -19,7 +19,7 @@ The headline experiment: how much does a colored-noise dephasing channel shift t
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/nonmarkov_qec.git
+git clone https://github.com/shivam1kamboj/nonmarkov_qec.git
 cd nonmarkov_qec
 pip install -e ".[dev]"
 ```
