@@ -33,7 +33,7 @@ Requires Python 3.11+.
 ## Roadmap
 
 - [x] Project scaffold, CI, license
-- [ ] Ornstein–Uhlenbeck process sampler with statistical validation (Week 1–2)
+- [x] Ornstein–Uhlenbeck process sampler with statistical validation (Week 1–2)
 - [ ] Sum-of-OU framework for 1/f-like spectra (Week 1–2)
 - [ ] Small-code implementations: bit-flip, phase-flip, Shor (Week 3–4)
 - [ ] Surface code patch + PyMatching decoder (Week 5–6)
