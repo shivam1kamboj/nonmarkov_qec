@@ -103,6 +103,57 @@ class SumOfOUProcess:
             self.n_components, sigma_j, dtype=np.float64
         )
 
+    @classmethod
+    def from_frequency_band(
+        cls,
+        f_min: float,
+        f_max: float,
+        n_components: int,
+        sigma_total: float,
+    ) -> SumOfOUProcess:
+        """Construct a SumOfOUProcess from a target 1/f frequency band.
+
+        Converts a frequency band [f_min, f_max] to a correlation-time range
+        via the corner-frequency relation f = 1 / (2 * pi * tau):
+
+            tau_min = 1 / (2 * pi * f_max)   (high frequency -> short tau)
+            tau_max = 1 / (2 * pi * f_min)   (low frequency  -> long tau)
+
+        Note the inversion: f_max (the high-frequency edge of the band) maps
+        to the *shortest* correlation time, and f_min maps to the longest.
+        All remaining validation and construction are delegated to the core
+        constructor.
+
+        Parameters
+        ----------
+        f_min
+            Lower edge of the target 1/f band (Hz or consistent units).
+            Must be > 0 and < f_max.
+        f_max
+            Upper edge of the target 1/f band. Must be > 0 and > f_min.
+        n_components
+            Number of OU components. Passed through to the core constructor.
+        sigma_total
+            Total stationary standard deviation of the summed process.
+            Passed through to the core constructor.
+
+        Returns
+        -------
+        SumOfOUProcess
+            Constructed with tau_min = 1/(2*pi*f_max) and
+            tau_max = 1/(2*pi*f_min).
+        """
+        if f_min <= 0:
+            raise ValueError(f"f_min must be > 0, got {f_min}")
+        if f_max <= 0:
+            raise ValueError(f"f_max must be > 0, got {f_max}")
+        if f_min >= f_max:
+            raise ValueError(f"f_min must be < f_max, got {f_min} >= {f_max}")
+
+        tau_min = 1.0 / (2.0 * np.pi * f_max)
+        tau_max = 1.0 / (2.0 * np.pi * f_min)
+        return cls(tau_min, tau_max, n_components, sigma_total)
+
     def sample(
         self,
         n_steps: int,
