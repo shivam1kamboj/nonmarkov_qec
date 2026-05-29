@@ -34,7 +34,7 @@ Requires Python 3.11+.
 
 - [x] Project scaffold, CI, license
 - [x] Ornstein–Uhlenbeck process sampler with statistical validation (Week 1–2)
-- [ ] Sum-of-OU framework for 1/f-like spectra (Week 1–2)
+- [x] Sum-of-OU framework for 1/f-like spectra (Week 1–2)
 - [ ] Small-code implementations: bit-flip, phase-flip, Shor (Week 3–4)
 - [ ] Surface code patch + PyMatching decoder (Week 5–6)
 - [ ] Noise injection layer + headline experiment (Week 7–8)

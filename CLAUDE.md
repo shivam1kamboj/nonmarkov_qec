@@ -54,39 +54,31 @@ Document axes explicitly.
 
 ## Status
 
-Updated end of week 4. OU sampler shipped at `v0.1.0-ou-sampler` (commit 7210b92).
-Design note for sum-of-OU committed at 0c9f40e. Tests passing, CI green.
+Updated end of week 5. Noise generation layer complete:
+- `v0.1.0-ou-sampler` — single OU sampler, validated, with plots.
+- `v0.2.0-sum-of-ou` — sum-of-OU for 1/f noise, validated, with plots (including spectrum-tiling figure).
 
-## Current focus: implement SumOfOUProcess
+All 10 tests passing, ruff + mypy clean, CI green. Next phase: the noise injection layer (bridge from noise trajectories to per-gate Pauli error rates).
 
-The single-OU sampler is shipped as v0.1.0-ou-sampler. The next module is the multi-component sampler that approximates 1/f noise. The full design is in `docs/sum_of_ou.md` — read that before 
-starting.
+## Current focus: noise injection layer (design first)
 
-**Step 1 — implement the core constructor and sample().** Create `src/nonmarkov_qec/noise/sum_of_ou.py` with class `SumOfOUProcess`. Constructor signature: `SumOfOUProcess(tau_min, tau_max, 
-n_components, sigma_total)`. Validate all inputs (all positive, tau_min < tau_max, n_components >= 1). Compute and store log-spaced tau_j and per-component sigma_j = sigma_total / 
-sqrt(n_components). The `sample()` method has the same signature and shape contract as `OUProcess.sample()`. Internally: sample each component independently using the exact-update recursion, sum 
-across components. Reuse OUProcess internally if clean; otherwise inline the recursion. Stop after Step 1 and let me review before Step 2.
+The noise generators are done. The next module is the bridge that turns a noise trajectory X(t) into per-gate Pauli error probabilities that Stim can consume. This is the first QEC-facing component.
 
-**Step 2 — implement the from_frequency_band classmethod.** Convert (f_min, f_max) to (tau_min, tau_max) via the design note's inversion. Thin wrapper, no new logic.
+Before implementing, the open design questions in "Parked" must be resolved — specifically whether alpha is user-facing and whether multi-qubit gates share a trajectory. So the next step is a design 
+note, not code.
 
-**Step 3 — write the four validation tests.** Three carried over from single-OU (stationary distribution, autocorrelation, PSD) with summed analytic references. One new test for the 1/f spectral 
-slope.
+**Step 1 — write docs/noise_injection.md.** Specify: the mapping p_k = clip(p_0 + alpha * X_k, 0, 1) (already chosen in docs/noise_model.md), how alpha is parameterized, how a trajectory maps onto a 
+Stim circuit's per-instruction error rates, and how Markovian vs. non-Markovian baselines are constructed at matched mean error rate. Resolve the two parked design questions in this note. Do not 
+write code yet — review the design first.
 
-**Step 4 — validation plots.** Mirror the single-OU plots for the sum-of-OU process, save to `docs/figures/`.
-
-**Step 5 — tag v0.2.0-sum-of-ou.**
+(Steps 2+ — implementation, tests, integration — to be defined after the design note is reviewed.)
 
 ## Parked
 
 Do not work on these now. They are recorded so context isn't lost.
 
-- **Whether `α` is user-facing or derived from a single knob.** Decide at
-week 7 when wiring noise into the QEC simulator.
-- **Whether multi-qubit gates share a noise trajectory or each qubit gets
-an independent one.** Same — week 7.
-- **Headline experiment for the README's first plot.** Decide before week
-7. Likely: surface code threshold under depolarizing vs. 1/f-like
-sum-of-OU noise at matched total noise power.
+- **Headline experiment for the README's first plot.** Decide before the benchmarking phase. Likely: surface code threshold under depolarizing vs. 1/f-like sum-of-OU noise at matched total noise 
+power.
 
 ## Working style
 
