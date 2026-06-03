@@ -22,6 +22,7 @@ import pytest
 import stim
 
 from nonmarkov_qec.noise.injection import inject_dephasing_noise
+from nonmarkov_qec.noise.ornstein_uhlenbeck import OUProcess
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -277,3 +278,32 @@ def test_m_zero_no_warning() -> None:
         warnings.simplefilter("always")
         inject_dephasing_noise(make_fixture(), trajectories, 0.05, 0.0, 1.0, 0.01)
     assert len(w) == 0, f"unexpected warning(s): {[str(x.message) for x in w]}"
+
+
+def test_end_to_end_ou_to_stim() -> None:
+    """Real OU trajectory flows through injection into a runnable Stim circuit."""
+    base = stim.Circuit()
+    base.append("H", [0, 1, 2])   # moment 0
+    base.append("TICK", [])
+    base.append("CX", [0, 1])     # moment 1
+    base.append("H", [2])
+    base.append("TICK", [])
+    base.append("M", [0, 1, 2])   # moment 2
+
+    n_cycles = 3  # 2 TICKs + 1
+
+    process = OUProcess(tau_c=1.0, sigma=0.5)
+    rng = np.random.default_rng(42)
+    raw = process.sample(n_steps=n_cycles, dt=0.1, n_trajectories=3, rng=rng)
+    # raw shape: (3, n_cycles + 1); strip initial condition → (3, n_cycles)
+    trajectories = raw[:, 1:]
+
+    result = inject_dephasing_noise(
+        base, trajectories, p_0=0.01, m=0.3, sigma=0.5, p_meas=0.01
+    )
+
+    assert isinstance(result, stim.Circuit)
+
+    sampler = result.compile_sampler()
+    shots = sampler.sample(shots=1)
+    assert shots.shape[1] == 3, f"expected 3 measurement bits, got {shots.shape[1]}"
