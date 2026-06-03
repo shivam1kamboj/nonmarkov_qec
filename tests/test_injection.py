@@ -15,6 +15,8 @@ Moment layout:
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 import stim
@@ -247,3 +249,31 @@ def test_base_circuit_unmodified() -> None:
     trajectories = np.zeros((3, 5), dtype=np.float64)
     inject_dephasing_noise(base, trajectories, 0.01, 0.3, 1.0, 0.01)
     assert repr(base) == before
+
+
+def test_no_warning_at_safe_m() -> None:
+    """m=0.5 yields ~2.3% clipping (below 5% threshold); no warning emitted."""
+    trajectories = np.zeros((3, 5), dtype=np.float64)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        inject_dephasing_noise(make_fixture(), trajectories, 0.05, 0.5, 1.0, 0.01)
+    assert len(w) == 0, f"unexpected warning(s): {[str(x.message) for x in w]}"
+
+
+def test_warning_at_high_m() -> None:
+    """m=1.0 yields ~15.9% clipping (above 5% threshold); warning emitted with percentage."""
+    trajectories = np.zeros((3, 5), dtype=np.float64)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        inject_dephasing_noise(make_fixture(), trajectories, 0.05, 1.0, 1.0, 0.01)
+    assert len(w) == 1, f"expected 1 warning, got {len(w)}"
+    assert "%" in str(w[0].message), f"message missing percentage: {w[0].message}"
+
+
+def test_m_zero_no_warning() -> None:
+    """m=0 skips the clip check; no warning and no ZeroDivisionError."""
+    trajectories = np.zeros((3, 5), dtype=np.float64)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        inject_dephasing_noise(make_fixture(), trajectories, 0.05, 0.0, 1.0, 0.01)
+    assert len(w) == 0, f"unexpected warning(s): {[str(x.message) for x in w]}"

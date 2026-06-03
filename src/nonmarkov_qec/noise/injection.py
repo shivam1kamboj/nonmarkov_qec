@@ -5,9 +5,12 @@ Design note: docs/noise_injection.md
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import stim
 from numpy.typing import NDArray
+from scipy.stats import norm
 
 # Gate classification sets.  Stim normalises aliases at insert time
 # (e.g. CNOT → CX, MZ → M), so instr.name always reflects the canonical form.
@@ -91,6 +94,17 @@ def inject_dephasing_noise(
     """
     circuit = base_circuit.flattened()
     alpha: float = m * p_0 / sigma
+
+    if m != 0.0:
+        lower = float(norm.cdf(-1.0 / m))
+        upper = float(norm.cdf(-(1.0 - p_0) / (m * p_0)))
+        clip_fraction = lower + upper
+        if clip_fraction > 0.05:
+            warnings.warn(
+                f"linear noise model: ~{clip_fraction:.1%} of cycles will clip at "
+                f"(p_0={p_0}, m={m}); the trajectory statistics are distorted in this regime",
+                stacklevel=2,
+            )
 
     n_qubits: int = trajectories.shape[0]
     n_cycles: int = trajectories.shape[1]
