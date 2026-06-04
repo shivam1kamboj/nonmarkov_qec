@@ -54,24 +54,35 @@ Document axes explicitly.
 
 ## Status
 
-Updated end of week 5. Noise generation layer complete:
+Updated end of week 6. Noise generation + injection layers complete:
 - `v0.1.0-ou-sampler` — single OU sampler, validated, with plots.
-- `v0.2.0-sum-of-ou` — sum-of-OU for 1/f noise, validated, with plots (including spectrum-tiling figure).
+- `v0.2.0-sum-of-ou` — sum-of-OU for 1/f noise, validated, with plots.
+- Noise injection layer (`src/nonmarkov_qec/noise/injection.py`) — bridges OU
+  trajectories to per-gate Stim Z-errors. Flattens REPEAT, single-pass rebuild,
+  per-qubit `Z_ERROR(clip(p_0 + alpha*X_qk))` after each data gate,
+  `M`/`MR(p_meas)` for measurements, idle moments advance the clock.
+  Clip-fraction warning above 5%.
 
-All 10 tests passing, ruff + mypy clean, CI green. Next phase: the noise injection layer (bridge from noise trajectories to per-gate Pauli error rates).
+All tests passing, ruff + mypy clean, CI green. Next phase: small QEC code
+implementations as Stim circuits.
 
-## Current focus: noise injection layer (design first)
+## Current focus: small QEC codes (design-note-first)
 
-The noise generators are done. The next module is the bridge that turns a noise trajectory X(t) into per-gate Pauli error probabilities that Stim can consume. This is the first QEC-facing component.
+Design note `docs/small_codes.md` is written. Three small codes as Stim
+circuits, memory experiments, exercised by the injection layer:
+- bit-flip (Stim's generated `repetition_code:memory`) — blind to our Z
+  dephasing by construction; serves as the injection-layer vocabulary/plumbing
+  test (expected zero detection events).
+- phase-flip (hand-built, X-stabilizers) — first code that actually corrects
+  our Z noise.
+- Shor 9-qubit (hand-built) — both error types.
 
-Before implementing, the open design questions in "Parked" must be resolved — specifically whether alpha is user-facing and whether multi-qubit gates share a trajectory. So the next step is a design 
-note, not code.
+Resolved in the note: `MR` is treated as `M(p_meas)` + ideal reset (added to
+the injection gate sets). Hand-built circuits are restricted to the verified
+Stim vocabulary (`R, TICK, H, CX, MR, M, DETECTOR, OBSERVABLE_INCLUDE`).
 
-**Step 1 — write docs/noise_injection.md.** Specify: the mapping p_k = clip(p_0 + alpha * X_k, 0, 1) (already chosen in docs/noise_model.md), how alpha is parameterized, how a trajectory maps onto a 
-Stim circuit's per-instruction error rates, and how Markovian vs. non-Markovian baselines are constructed at matched mean error rate. Resolve the two parked design questions in this note. Do not 
-write code yet — review the design first.
-
-(Steps 2+ — implementation, tests, integration — to be defined after the design note is reviewed.)
+Implementation order: (1) MR fix + regression test; (2) bit-flip constructor +
+metadata + decoder-free validations; (3) phase-flip; (4) Shor.
 
 ## Parked
 

@@ -14,6 +14,9 @@ from scipy.stats import norm
 
 # Gate classification sets.  Stim normalises aliases at insert time
 # (e.g. CNOT → CX, MZ → M), so instr.name always reflects the canonical form.
+# MR/MRX/MRY/MRZ are Stim's measure-and-reset gates used for ancilla qubits in
+# generated circuits; they are treated identically to plain measurement gates:
+# emitted as MR(p_meas) with ideal reset, never reading the trajectory.
 # These sets will be re-validated against real Stim-generated code circuits
 # during the codes phase.  Idle moments (two consecutive TICKs with no data
 # gates between them) advance the cycle counter k but emit no Z_ERROR in v1.
@@ -21,7 +24,10 @@ DATA_GATES: frozenset[str] = frozenset({
     "H", "X", "Y", "Z", "S", "S_DAG", "SQRT_X",
     "CX", "CNOT", "CZ", "SWAP",
 })
-MEASUREMENT_GATES: frozenset[str] = frozenset({"M", "MZ", "MX", "MY"})
+MEASUREMENT_GATES: frozenset[str] = frozenset({
+    "M", "MZ", "MX", "MY",
+    "MR", "MRX", "MRY", "MRZ",  # measure-and-reset; treated as M(p_meas) + ideal reset
+})
 PASSTHROUGH: frozenset[str] = frozenset({
     "R", "RX", "RY", "RZ",
     "DETECTOR", "OBSERVABLE_INCLUDE", "QUBIT_COORDS", "SHIFT_COORDS",
@@ -52,7 +58,10 @@ def inject_dephasing_noise(
     Idle moments (consecutive TICKs with no intervening data gates) advance k
     without emitting any Z_ERROR.
 
-    Measurement gates are emitted as M(p_meas); they never read the trajectory.
+    Measurement gates (M, MZ, MX, MY) and measure-and-reset gates (MR, MRX,
+    MRY, MRZ) are emitted with p_meas as the flip probability and never read
+    the trajectory.  MR* gates retain their built-in ideal reset; no separate R
+    instruction is emitted.
     Resets and annotation instructions are passed through unchanged with no
     error appended and no clock advance.
 

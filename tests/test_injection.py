@@ -280,6 +280,41 @@ def test_m_zero_no_warning() -> None:
     assert len(w) == 0, f"unexpected warning(s): {[str(x.message) for x in w]}"
 
 
+def test_mr_gates_repetition_code() -> None:
+    """MR gates in a Stim-generated repetition code do not raise (MR regression).
+
+    With m=0 every data gate gets Z_ERROR(p_0=0.1) and p_meas=0.  The
+    repetition_code:memory circuit uses ZZ stabilizers; Z errors commute with
+    all ZZ checks, so all detectors must fire zero.
+    """
+    circuit = stim.Circuit.generated(
+        "repetition_code:memory",
+        distance=3,
+        rounds=3,
+        after_clifford_depolarization=0,
+        before_round_data_depolarization=0,
+        before_measure_flip_probability=0,
+        after_reset_flip_probability=0,
+    )
+    n_qubits: int = circuit.num_qubits
+    n_ticks: int = sum(1 for i in circuit.flattened() if i.name == "TICK")
+    n_cycles: int = n_ticks + 1
+
+    noisy = inject_dephasing_noise(
+        circuit,
+        trajectories=np.zeros((n_qubits, n_cycles)),
+        p_0=0.1,
+        m=0.0,
+        sigma=1.0,
+        p_meas=0.0,
+    )
+
+    det_samples = noisy.compile_detector_sampler().sample(shots=1024)
+    assert not det_samples.any(), (
+        "expected all-zero detectors; Z dephasing is invisible to ZZ-stabilizer repetition code"
+    )
+
+
 def test_end_to_end_ou_to_stim() -> None:
     """Real OU trajectory flows through injection into a runnable Stim circuit."""
     base = stim.Circuit()
