@@ -36,11 +36,10 @@ Requires Python 3.11+.
 - [x] Ornstein–Uhlenbeck process sampler with statistical validation (Week 1–2)
 - [x] Sum-of-OU framework for 1/f-like spectra (Week 1–2)
 - [x] Small-code implementations: bit-flip, phase-flip, Shor (Week 3–4)
-- [ ] Surface code patch + PyMatching decoder (Week 5–6)
 - [x] Noise injection layer (trajectory → per-gate Stim Z-errors)
-- [ ] Benchmarking harness + headline experiment (Markovian vs 1/f threshold)
+- [x] Surface code patch + PyMatching decoder (Week 5–6)
+- [ ] Benchmarking harness + headline experiment — incl. d=5 patch (Markovian vs 1/f threshold)
 - [ ] Polish + technical write-up (Week 9–10)
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
