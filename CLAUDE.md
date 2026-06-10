@@ -1,20 +1,20 @@
-# CLAUDE.md
+ CLAUDE.md
 
 This file orients Claude Code at the start of each session. Read it first.
 
 ## Project: nonmarkov-qec
 
-An open-source Python library that simulates quantum error correction 
-(QEC) codes under realistic, non-Markovian noise models, and benchmarks 
+An open-source Python library that simulates quantum error correction
+(QEC) codes under realistic, non-Markovian noise models, and benchmarks
 logical error rates against standard Markovian baselines.
 
-This is a polished engineering artifact, not novel research. The goal is a 
-clean, well-documented benchmarking tool that quantifies the gap between 
-Markovian assumptions in QEC threshold theorems and the non-Markovian 
+This is a polished engineering artifact, not novel research. The goal is a
+clean, well-documented benchmarking tool that quantifies the gap between
+Markovian assumptions in QEC threshold theorems and the non-Markovian
 noise of real superconducting hardware.
 
-Target: 6–10 weeks of part-time work. Ship on GitHub with README, 
-examples, tests, CI, and a short technical write-up.
+Ship on GitHub with README, examples, tests, CI, and a short technical
+write-up.
 
 ## Scope
 
@@ -32,10 +32,10 @@ codes. Fault-tolerant gate construction (memory experiments only: encode
 
 ## Tech stack
 
-Python 3.11+. Stim for stabilizer simulation. PyMatching for surface code 
-decoding. NumPy / SciPy for SDE integration. Matplotlib for plots. pytest 
-for testing. ruff + mypy strict for lint and types. GitHub Actions for CI 
-on 3.11 and 3.12. MIT license.
+Python 3.11+. Stim for stabilizer simulation. PyMatching for surface code
+decoding. NumPy / SciPy for SDE integration. Matplotlib for plots. pytest
+for testing. ruff + mypy strict for lint and types. GitHub Actions for CI.
+MIT license.
 
 ## Conventions
 
@@ -54,42 +54,66 @@ Document axes explicitly.
 
 ## Status
 
-Updated end of week 6. Noise generation + injection layers complete:
-- `v0.1.0-ou-sampler` — single OU sampler, validated, with plots.
-- `v0.2.0-sum-of-ou` — sum-of-OU for 1/f noise, validated, with plots.
-- Noise injection layer (`src/nonmarkov_qec/noise/injection.py`) — bridges OU
-  trajectories to per-gate Stim Z-errors. Flattens REPEAT, single-pass rebuild,
-  per-qubit `Z_ERROR(clip(p_0 + alpha*X_qk))` after each data gate,
-  `M`/`MR(p_meas)` for measurements, idle moments advance the clock.
-  Clip-fraction warning above 5%.
+Full simulate-and-decode pipeline complete and validated end to end:
+noise generator -> injection -> surface code -> MWPM decoder -> logical
+error rate. 49 tests pass, ruff + mypy clean, CI green. HEAD = 16cf477.
 
-All tests passing, ruff + mypy clean, CI green. Next phase: small QEC code
-implementations as Stim circuits.
+Noise generation (committed, with plots):
+- `v0.1.0-ou-sampler` — single OU sampler (Gillespie exact-update).
+- `v0.2.0-sum-of-ou` — sum-of-OU for 1/f (from_frequency_band, 1/f slope
+  -0.9976).
 
-## Current focus: small QEC codes (design-note-first)
+Noise injection (committed):
+- `noise/injection.py` — trajectory X_q(k) -> clip(p_0 + alpha*X) Z_ERROR
+  per data gate, alpha = m*p_0/sigma internal. MR/MRX/MRY/MRZ = M(p_meas)
+  + ideal reset. Data-gate dephasing only in v1; measurement constant p_meas.
 
-Design note `docs/small_codes.md` is written. Three small codes as Stim
-circuits, memory experiments, exercised by the injection layer:
-- bit-flip (Stim's generated `repetition_code:memory`) — blind to our Z
-  dephasing by construction; serves as the injection-layer vocabulary/plumbing
-  test (expected zero detection events).
-- phase-flip (hand-built, X-stabilizers) — first code that actually corrects
-  our Z noise.
-- Shor 9-qubit (hand-built) — both error types.
+Small codes (committed, decoder-free validation):
+- bit-flip (Stim generated, Z-blind plumbing null), phase-flip (hand-built
+  X-stabilizers, first real Z correction), Shor 9-qubit (hand-built X-memory,
+  exact fired-detector-set contrast test).
 
-Resolved in the note: `MR` is treated as `M(p_meas)` + ideal reset (added to
-the injection gate sets). Hand-built circuits are restricted to the verified
-Stim vocabulary (`R, TICK, H, CX, MR, M, DETECTOR, OBSERVABLE_INCLUDE`).
+Surface code (committed):
+- `codes/surface_code.py` — rotated d=3, 17 qubits, X-basis memory. CX
+  schedule adopted from Stim's rotated_memory_x, remapped to 0-16; verified
+  shortest_graphlike_error == 3. Design note docs/surface_code.md.
 
-Implementation order: (1) MR fix + regression test; (2) bit-flip constructor +
-metadata + decoder-free validations; (3) phase-flip; (4) Shor.
+MWPM decoder (committed):
+- `decoders/matching.py` — matching_from_circuit (DEM -> pymatching,
+  decompose_errors=True, single-observable assert); estimate_logical_error_rate
+  -> DecodeResult(shots, errors, .rate, .stderr). Operates on already-noisy
+  circuits; knows nothing about noise generation.
+
+Design notes in docs/: noise_model.md, noise_generator.md, sum_of_ou.md,
+noise_injection.md, small_codes.md, surface_code.md.
+
+## Current focus: benchmarking harness + headline experiment (design-note-first)
+
+Produces the headline number: surface-code threshold under 1/f (sum-of-OU)
+vs matched Markovian noise. Design note docs/benchmarking.md is being written
+and reviewed BEFORE any code.
+
+Build order (after note approved): parameterized surface_code(d) with
+shortest_graphlike_error == d gate at d=3 AND d=5 + d=3 regression ->
+white-noise process (shared process interface) + matched-marginal unit test
+-> run_sweep harness -> coarse scan -> fine scan + threshold extraction + plot.
+
+Matched comparison (the validity core): both arms share marginal mean p_0 and
+marginal variance (m*p_0)^2 of the per-cycle error probability via the
+alpha = m*p_0/sigma normalization; ONLY the temporal autocorrelation differs
+(white vs 1/f). We fix sigma, never D, so there is no tau_c -> 0 blow-up.
 
 ## Parked
 
-Do not work on these now. They are recorded so context isn't lost.
+Do not work on these now. Recorded so context isn't lost.
 
-- **Headline experiment for the README's first plot.** Decide before the benchmarking phase. Likely: surface code threshold under depolarizing vs. 1/f-like sum-of-OU noise at matched total noise 
-power.
+- d=7 patch + full finite-size scaling collapse (v1 uses two-distance
+  crossing-bracket; collapse needs >=3 distances).
+- v1.1 physics refinements (deferred in design notes): quadratic/pure-dephasing
+  injection map p = (1-exp(-chi))/2; reset noise; spatial correlation across
+  qubits. None block the headline result.
+- Sum-of-OU pedagogical notebook (separate Summer_2026 teaching track).
+- Hardware calibration extension (Phase 2, after v1 ships).
 
 ## Working style
 
