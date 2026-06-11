@@ -106,7 +106,9 @@ print(f"logical error rate: {result.rate:.4g} ± {result.stderr:.2g}")
 - [x] Small-code implementations: bit-flip, phase-flip, Shor
 - [x] Noise injection layer (trajectory → per-gate Stim Z-errors)
 - [x] Distance-3 surface code patch + PyMatching decoder
-- [ ] **Benchmarking harness + headline experiment** — d=5 patch, Markovian-vs-1/f threshold *(in progress)*
+- [x] Parameterized surface code, d=5 patch (distance verified at d=3 and d=5)
+- [x] White-noise (Markovian) baseline + matched-marginal validation
+- [ ] **Benchmarking harness + threshold sweep** — Markovian-vs-1/f, threshold vs τ_c *(in progress)*
 - [ ] Technical write-up + results
 
 ### Beyond v1: hardware calibration
