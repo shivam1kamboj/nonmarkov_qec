@@ -1,81 +1,50 @@
-"""Tests for the distance-3 rotated surface code constructor."""
+"""Tests for the parameterized rotated surface code constructor (any odd d).
+
+Distance gates lead the file: they are the primary acceptance oracle. The
+fault-contrast test inverts the empirical Z-fault -> detector incidence and
+compares it against an independently derived plaquette enumeration, so the
+schedule wiring is checked against geometry without reusing constructor
+internals.
+"""
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import stim
 
 from nonmarkov_qec.codes.surface_code import surface_code
+from nonmarkov_qec.decoders import estimate_logical_error_rate
 from nonmarkov_qec.noise.injection import inject_dephasing_noise
 
 
-def test_metadata() -> None:
-    """surface_code(3) returns correct metadata and n_cycles = n_ticks + 1."""
-    code = surface_code(3)
-    assert code.n_qubits == 17
-    assert code.data_qubits == tuple(range(9))
-    assert code.ancilla_qubits == tuple(range(9, 17))
-    assert len(code.ancilla_qubits) == 8  # 4 X-checks + 4 Z-checks
-    assert code.rounds == 3
-    assert code.distance == 3
-    assert code.circuit.num_observables == 1
-    assert code.circuit.num_detectors == 24  # 4 + 8 + 8 + 4
+# ----------------------------------------------------------------------------
+# Independent geometric oracle (does NOT import constructor internals)
+# ----------------------------------------------------------------------------
+def _expected_x_supports(d: int) -> set[frozenset[int]]:
+    """X-stabilizer supports derived purely from plaquette geometry.
 
-    flat = code.circuit.flattened()
-    n_ticks = sum(
-        1
-        for item in flat
-        if isinstance(item, stim.CircuitInstruction) and item.name == "TICK"
-    )
-    assert code.n_cycles == n_ticks + 1
-
-
-def test_no_preexisting_noise() -> None:
-    """Generated circuit has no error channels; injection is the sole noise source."""
-    code = surface_code(3)
-    for item in code.circuit.flattened():
-        if isinstance(item, stim.CircuitInstruction):
-            assert not item.name.endswith("_ERROR"), (
-                f"found preexisting error channel: {item.name}"
-            )
-            assert not item.name.startswith("DEPOLARIZE"), (
-                f"found preexisting depolarizing channel: {item.name}"
-            )
-
-
-def test_noiseless_determinism() -> None:
-    """Noiseless circuit produces all-zero detectors and observable never flips."""
-    code = surface_code(3)
-    sampler = code.circuit.compile_detector_sampler()
-    det_samples, obs_samples = sampler.sample(shots=256, separate_observables=True)
-    assert not det_samples.any(), (
-        "expected all-zero detectors from noiseless surface code circuit — "
-        "check detector wiring"
-    )
-    assert not obs_samples.any(), (
-        "expected logical observable = 0 for noiseless |+_L⟩ — "
-        "check observable wiring"
-    )
-    code.circuit.detector_error_model(decompose_errors=False)
-
-
-def test_distance_is_three() -> None:
-    """Schedule-acceptance gate: DEM under flat Z-dephasing has graphlike distance 3.
-
-    A noiseless circuit has an empty DEM; inject flat Z-noise (p_0=0.001,
-    m=0, sigma=1) to populate error mechanisms before computing the DEM.
+    Frame: data(r, c) = r*d + c, row 0 north, row index increases south,
+    column index increases east.  X-stabilizers sit on plaquettes (pr, pc) with
+    (pr + pc) odd, excluding the left/right code boundaries (pc in {-1, d-1});
+    top/bottom boundary plaquettes (pr in {-1, d-1}) appear as weight-2 checks.
     """
-    code = surface_code(rounds=3)
-    noisy = inject_dephasing_noise(
-        code.circuit,
-        trajectories=np.zeros((code.n_qubits, code.n_cycles)),
-        p_0=0.001,
-        m=0.0,
-        sigma=1.0,
-        p_meas=0.0,
-    )
-    dem = noisy.detector_error_model(decompose_errors=True)
-    assert len(dem.shortest_graphlike_error()) == 3
+    supports: set[frozenset[int]] = set()
+    for pr in range(-1, d):
+        for pc in range(-1, d):
+            if (pr + pc) % 2 != 1:
+                continue  # Z-type, not X
+            if pc in (-1, d - 1):
+                continue  # left/right boundary carries Z, not X
+            cells = [
+                (pr + dr) * d + (pc + dc)
+                for dr in (0, 1)
+                for dc in (0, 1)
+                if 0 <= pr + dr < d and 0 <= pc + dc < d
+            ]
+            if len(cells) >= 2:
+                supports.add(frozenset(cells))
+    return supports
 
 
 def _inject_single_fault_at_tick(
@@ -84,11 +53,9 @@ def _inject_single_fault_at_tick(
     qubit: int,
     tick_index: int,
 ) -> stim.Circuit:
-    """Return a copy of code_circuit with one deterministic fault after the
-    (tick_index)-th TICK (0-indexed).
-
-    tick_index=0 is after the single prep TICK (R + H), placing the fault at
-    the very start of the first syndrome round when data qubits are in |+⟩^9.
+    """Copy of code_circuit with one deterministic fault after the
+    (tick_index)-th TICK (0-indexed).  tick_index=0 is after the single prep
+    TICK (R + H), i.e. data in |+> at the start of round 0.
     """
     out = stim.Circuit()
     ticks_seen = 0
@@ -103,57 +70,146 @@ def _inject_single_fault_at_tick(
     return out
 
 
-def test_single_fault_contrast() -> None:
-    """Each Z fault fires exactly the X-stabilizers it anticommutes with.
-
-    rounds=1 detector column layout:
-        0: round-0 anc9  (X_{0,1})
-        1: round-0 anc10 (X_{1,2,4,5})
-        2: round-0 anc11 (X_{3,4,6,7})
-        3: round-0 anc12 (X_{7,8})
-        4: final anc9  ⊕ MX{0,1}
-        5: final anc10 ⊕ MX{1,2,4,5}
-        6: final anc11 ⊕ MX{3,4,6,7}
-        7: final anc12 ⊕ MX{7,8}
-
-    Fault injected after the prep TICK (tick_index=0): data in |+⟩^9 at the
-    start of round 0.  The fault is static and rounds=1, so each final
-    detector cancels (last-round ancilla XOR readout parity = 0), and only
-    the round-0 syndrome columns fire.
-    """
-    code = surface_code(1)
-
-    def fired(circuit: stim.Circuit) -> set[int]:
-        det = circuit.compile_detector_sampler().sample(shots=256)
-        return {int(c) for c in np.flatnonzero(det.any(axis=0))}
-
-    # q0 is in X_{0,1} (anc9, col 0) only
-    z0 = _inject_single_fault_at_tick(code.circuit, "Z_ERROR", 0, tick_index=0)
-    assert fired(z0) == {0}, f"Z on q0 should fire col 0 only; got {fired(z0)}"
-
-    # q4 is in X_{1,2,4,5} (anc10, col 1) and X_{3,4,6,7} (anc11, col 2)
-    z4 = _inject_single_fault_at_tick(code.circuit, "Z_ERROR", 4, tick_index=0)
-    assert fired(z4) == {1, 2}, f"Z on q4 should fire cols 1,2; got {fired(z4)}"
+def _fired_detectors(circuit: stim.Circuit) -> set[int]:
+    """Detector indices that fire (circuit is deterministic under Z_ERROR=1.0)."""
+    det = circuit.compile_detector_sampler().sample(shots=8)
+    return {int(i) for i in np.flatnonzero(det.any(axis=0))}
 
 
-def test_z_visible_under_injection() -> None:
-    """Z dephasing IS detected by the surface code's X-check stabilizers.
-
-    Flat trajectory at p_0=0.3 (m=0, sigma=1, p_meas=0) gives a constant
-    Z-error rate of 0.3 at every cycle, which should reliably fire X-check
-    detectors.
-    """
-    code = surface_code(3)
+# ----------------------------------------------------------------------------
+# Primary acceptance gate: code distance
+# ----------------------------------------------------------------------------
+@pytest.mark.parametrize("d", [3, 5])
+def test_distance_gate(d: int) -> None:
+    """Graphlike distance under flat Z-dephasing equals d (no hook collapse)."""
+    code = surface_code(distance=d, rounds=d)
     noisy = inject_dephasing_noise(
         code.circuit,
         trajectories=np.zeros((code.n_qubits, code.n_cycles)),
-        p_0=0.3,
+        p_0=0.001,
         m=0.0,
         sigma=1.0,
         p_meas=0.0,
     )
-    det_samples = noisy.compile_detector_sampler().sample(shots=1024)
-    assert det_samples.any(), (
-        "expected some detector events; Z dephasing should be visible to "
-        "X-stabilizer checks in the surface code"
+    dem = noisy.detector_error_model(decompose_errors=True)
+    assert len(dem.shortest_graphlike_error()) == d
+
+
+# ----------------------------------------------------------------------------
+# Structure / metadata
+# ----------------------------------------------------------------------------
+@pytest.mark.parametrize("d", [3, 5])
+def test_structure(d: int) -> None:
+    code = surface_code(distance=d, rounds=d)
+    assert code.circuit.num_qubits == 2 * d * d - 1
+    assert code.n_qubits == 2 * d * d - 1
+    assert code.distance == d
+    assert code.rounds == d
+    assert code.data_qubits == tuple(range(d * d))
+    assert code.ancilla_qubits == tuple(range(d * d, 2 * d * d - 1))
+    assert len(code.ancilla_qubits) == d * d - 1
+    assert code.circuit.num_detectors == (d * d - 1) * d
+    assert code.circuit.num_observables == 1
+
+    flat = code.circuit.flattened()
+    n_ticks = sum(
+        1
+        for item in flat
+        if isinstance(item, stim.CircuitInstruction) and item.name == "TICK"
     )
+    assert code.n_cycles == n_ticks + 1
+
+
+@pytest.mark.parametrize("d", [3, 5])
+def test_no_preexisting_noise(d: int) -> None:
+    """Bare circuit carries no error channels; injection is the sole source."""
+    code = surface_code(distance=d, rounds=d)
+    for item in code.circuit.flattened():
+        if isinstance(item, stim.CircuitInstruction):
+            assert not item.name.endswith("_ERROR"), (
+                f"preexisting error channel: {item.name}"
+            )
+            assert not item.name.startswith("DEPOLARIZE"), (
+                f"preexisting depolarizing channel: {item.name}"
+            )
+
+
+@pytest.mark.parametrize("d", [3, 5])
+def test_noiseless_determinism(d: int) -> None:
+    """Noiseless circuit: all detectors zero, observable never flips."""
+    code = surface_code(distance=d, rounds=d)
+    sampler = code.circuit.compile_detector_sampler()
+    det, obs = sampler.sample(shots=256, separate_observables=True)
+    assert not det.any(), "expected all-zero detectors — check detector wiring"
+    assert not obs.any(), "expected observable = 0 for noiseless |+_L> — check observable"
+
+
+# ----------------------------------------------------------------------------
+# Fault contrast: schedule wiring vs independent geometry
+# ----------------------------------------------------------------------------
+@pytest.mark.parametrize("d", [3, 5])
+def test_x_stabilizer_incidence(d: int) -> None:
+    """A single Z fault fires exactly the X-stabilizers whose support contains
+    the faulted qubit; final detectors cancel for a static rounds=1 fault.
+
+    The empirical fault->detector incidence is inverted to recover each
+    X-stabilizer's support and compared (unordered) to _expected_x_supports,
+    which is derived independently of the constructor.
+    """
+    code = surface_code(distance=d, rounds=1)
+    n_x = (d * d - 1) // 2
+
+    circuit_support: dict[int, set[int]] = {i: set() for i in range(n_x)}
+    for q in range(d * d):
+        faulted = _inject_single_fault_at_tick(code.circuit, "Z_ERROR", q, tick_index=0)
+        fired = _fired_detectors(faulted)
+        # rounds=1: detectors [0, n_x) are round-0 X-syndromes; [n_x, 2 n_x) are
+        # final reconstructions, which must cancel for a static |+> fault.
+        assert all(i < n_x for i in fired), (
+            f"d={d}, Z on q{q}: a final detector fired {sorted(fired)}; "
+            f"static rounds=1 fault should cancel at readout"
+        )
+        for i in fired:
+            circuit_support[i].add(q)
+
+    circuit_supports = {frozenset(s) for s in circuit_support.values()}
+    expected = _expected_x_supports(d)
+    assert len(expected) == n_x  # oracle self-check
+    assert circuit_supports == expected, (
+        f"d={d}: circuit X-stabilizer supports {circuit_supports} "
+        f"!= geometric expectation {expected}"
+    )
+
+
+# ----------------------------------------------------------------------------
+# End-to-end decode path
+# ----------------------------------------------------------------------------
+@pytest.mark.parametrize("d", [3, 5])
+def test_subthreshold_decode(d: int) -> None:
+    """Decoder runs end to end and beats coin-flip well below threshold."""
+    code = surface_code(distance=d, rounds=d)
+    noisy = inject_dephasing_noise(
+        code.circuit,
+        trajectories=np.zeros((code.n_qubits, code.n_cycles)),
+        p_0=0.001,
+        m=0.0,
+        sigma=1.0,
+        p_meas=0.0,
+    )
+    result = estimate_logical_error_rate(noisy, 2000, seed=0)
+    assert result.shots == 2000
+    assert result.rate < 0.5
+
+
+# ----------------------------------------------------------------------------
+# Input validation
+# ----------------------------------------------------------------------------
+@pytest.mark.parametrize("bad_distance", [2, 4, 1, 0, -1])
+def test_invalid_distance_raises(bad_distance: int) -> None:
+    with pytest.raises(ValueError):
+        surface_code(distance=bad_distance, rounds=3)
+
+
+def test_invalid_rounds_raises() -> None:
+    with pytest.raises(ValueError):
+        surface_code(distance=3, rounds=0)

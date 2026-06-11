@@ -37,14 +37,14 @@ def test_matching_rejects_multiobservable() -> None:
 
 def test_noiseless_decodes_to_zero_errors() -> None:
     """Noiseless circuit is deterministic: decoder always predicts correctly."""
-    code = surface_code(3)
+    code = surface_code(distance=3, rounds=3)
     result = estimate_logical_error_rate(code.circuit, shots=512)
     assert result.errors == 0
 
 
 def test_seeded_reproducibility() -> None:
     """Same seed produces identical error counts on a noisy circuit."""
-    code = surface_code(3)
+    code = surface_code(distance=3, rounds=3)
     noisy = inject_dephasing_noise(
         code.circuit,
         trajectories=np.zeros((code.n_qubits, code.n_cycles)),
@@ -66,7 +66,7 @@ def test_sub_threshold_below_half() -> None:
     that without being sensitive enough to flake at a genuinely sub-threshold
     operating point.
     """
-    code = surface_code(3)
+    code = surface_code(distance=3, rounds=3)
     noisy = inject_dephasing_noise(
         code.circuit,
         trajectories=np.zeros((code.n_qubits, code.n_cycles)),

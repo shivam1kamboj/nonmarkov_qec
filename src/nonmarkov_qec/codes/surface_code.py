@@ -1,226 +1,226 @@
-"""Distance-3 rotated surface code constructor — variable rounds, X-basis memory."""
+"""Rotated surface code constructor — arbitrary odd distance, X-basis memory."""
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import stim
 
 from nonmarkov_qec.codes.base import CodeCircuit
 
+# CX layer assignment keyed by the compass direction of a data qubit relative to
+# its ancilla, in the frame where the row index increases SOUTH (row 0 = north)
+# and the column index increases EAST. This mapping is extracted from — and
+# bit-for-bit reproduces — the validated hand-built distance-3 schedule; the
+# same geometric rule was confirmed distance-preserving at d=5 against Stim's
+# rotated_memory_x generator. X- and Z-type stabilizers use *transposed* orders
+# (X latitude-paired, Z longitude-paired) so the two types never collide on a
+# shared data qubit within a layer — the hook-avoiding property that keeps the
+# effective code distance equal to d.
+_X_LAYER: dict[str, int] = {"SE": 0, "SW": 1, "NE": 2, "NW": 3}
+_Z_LAYER: dict[str, int] = {"SE": 0, "NE": 1, "SW": 2, "NW": 3}
 
-def surface_code(rounds: int) -> CodeCircuit:
-    """Return a noise-free CodeCircuit for the distance-3 rotated surface code.
 
-    Hand-built X-basis memory circuit.  Encodes the logical |+_L⟩ state and
-    measures four weight-2/4 X-stabilizers (ancillas 9-12) and four weight-2/4
-    Z-stabilizers (ancillas 13-16) each round.
+@dataclass(frozen=True)
+class _Ancilla:
+    """Internal record for one stabilizer ancilla."""
 
-    Layout
-    ------
-    Data qubits    : 0-8, row-major 3x3::
+    qubit: int                     # stim qubit index
+    kind: str                      # "X" or "Z"
+    support: tuple[int, ...]       # data qubit indices, ascending
+    schedule: dict[int, int]       # CX layer index (0-3) -> data qubit index
+    coord: tuple[float, float]     # (x, y) for QUBIT_COORDS, larger y = north
 
-        0  1  2
-        3  4  5
-        6  7  8
 
-    Ancilla qubits
-        X-type (Hadamard-prepped, ancilla-as-control):
-            9  : X_{0,1}
-            10 : X_{1,2,4,5}
-            11 : X_{3,4,6,7}
-            12 : X_{7,8}
-        Z-type (data-as-control, ancilla-as-target):
-            13 : Z_{0,1,3,4}
-            14 : Z_{4,5,7,8}
-            15 : Z_{3,6}
-            16 : Z_{2,5}
+def _build_ancillas(d: int) -> list[_Ancilla]:
+    """Enumerate the d**2 - 1 stabilizer ancillas from the plaquette geometry.
 
-    n_qubits = 17
+    Plaquettes live on a grid of (pr, pc) positions. Interior plaquettes
+    (pr, pc in 0..d-2) are weight-4; boundary plaquettes (one of pr, pc equal to
+    -1 or d-1) are weight-2. Type is set by a checkerboard parity: X where
+    (pr + pc) is odd, Z where even. Top/bottom boundaries carry only X
+    stabilizers; left/right boundaries carry only Z. This yields exactly
+    (d-1)**2 interior + 2*(d-1) boundary = d**2 - 1 stabilizers.
 
-    Circuit vocabulary
-    ------------------
-    R, H, CX, MR, MX, TICK, DETECTOR, OBSERVABLE_INCLUDE only.
+    Returns the ancillas with all X-type first (ascending plaquette position),
+    then all Z-type, and assigns qubit indices d**2 .. 2*d**2 - 2 in that order.
+    """
+    raw_x: list[tuple[int, int, tuple[int, ...], dict[int, int], tuple[float, float]]] = []
+    raw_z: list[tuple[int, int, tuple[int, ...], dict[int, int], tuple[float, float]]] = []
 
-    Encoding for |+_L⟩
-    -------------------
-    Reset all qubits, then Hadamard all 9 data qubits::
+    for pr in range(-1, d):
+        for pc in range(-1, d):
+            support_rc = [
+                (pr + dr, pc + dc)
+                for dr in (0, 1)
+                for dc in (0, 1)
+                if 0 <= pr + dr < d and 0 <= pc + dc < d
+            ]
+            if len(support_rc) < 2:
+                continue  # corner / degenerate position, not a stabilizer
 
-        R  0..16
-        H  0 1 2 3 4 5 6 7 8   TICK
+            is_x = (pr + pc) % 2 == 1
+            on_tb = pr in (-1, d - 1)   # top or bottom boundary
+            on_lr = pc in (-1, d - 1)   # left or right boundary
+            if on_tb and not is_x:
+                continue  # top/bottom boundaries carry only X stabilizers
+            if on_lr and is_x:
+                continue  # left/right boundaries carry only Z stabilizers
 
-    Per-round syndrome structure
-    ----------------------------
-    Four frozen CX layers (A-D) implement all eight stabilizer checks in
-    parallel.  Ancilla-as-control for X checks; data-as-control for Z checks::
+            layer_map = _X_LAYER if is_x else _Z_LAYER
+            center_row = pr + 0.5
+            center_col = pc + 0.5
+            schedule: dict[int, int] = {}
+            support_list: list[int] = []
+            for (r, c) in support_rc:
+                q = r * d + c
+                support_list.append(q)
+                ns = "N" if r < center_row else "S"
+                ew = "E" if c > center_col else "W"
+                schedule[layer_map[ns + ew]] = q
 
-        H 9 10 11 12                                         TICK
-        CX 9 1  11 7  10 5  6 15  4 13  8 14                TICK   # A
-        CX 9 0  11 6  10 4  3 15  1 13  5 14                TICK   # B
-        CX 11 4  10 2  12 8  3 13  7 14  5 16               TICK   # C
-        CX 11 3  10 1  12 7  0 13  4 14  2 16               TICK   # D
-        H 9 10 11 12                                         TICK
-        MR 9 10 11 12 13 14 15 16   <detectors>             TICK
+            coord = (pc + 0.5, (d - 1) - (pr + 0.5))
+            entry = (pr, pc, tuple(sorted(support_list)), schedule, coord)
+            (raw_x if is_x else raw_z).append(entry)
 
-    Gives 7 TICKs per round; 1 encoding TICK; n_cycles = 2 + 7·rounds.
+    raw_x.sort(key=lambda e: (e[0], e[1]))
+    raw_z.sort(key=lambda e: (e[0], e[1]))
 
-    Detector record indices
-    -----------------------
-    Immediately after MR 9..16 in round t:
-      rec[-8] = anc9,  rec[-7] = anc10, …,  rec[-1] = anc16
-      prev round (t≥1):  rec[-16] = anc9_prev, …, rec[-9] = anc16_prev
+    ancillas: list[_Ancilla] = []
+    q = d * d
+    for kind, raw in (("X", raw_x), ("Z", raw_z)):
+        for (_pr, _pc, support, schedule, coord) in raw:
+            ancillas.append(_Ancilla(qubit=q, kind=kind, support=support,
+                                     schedule=schedule, coord=coord))
+            q += 1
+    return ancillas
 
-    Round 0 emits four X-ancilla detectors only (Z-ancilla outcomes are
-    random on |+⟩^9 initialization; their XOR with round 1 is deterministic).
 
-    After final MX 0..8 (9 records appended):
-      rec[-9] = MX(q0), …, rec[-1] = MX(q8)
-      last-round MR shifted by 9:
-        anc9_last = rec[-17], anc10_last = rec[-16],
-        anc11_last = rec[-15], anc12_last = rec[-14]
+def surface_code(distance: int, rounds: int) -> CodeCircuit:
+    """Return a noise-free CodeCircuit for the rotated surface code, X-basis memory.
+
+    Hand-built, coordinate-driven constructor for any odd ``distance`` >= 3.
+    Encodes the logical |+_L> state, measures (d**2 - 1)/2 X-stabilizers and
+    (d**2 - 1)/2 Z-stabilizers each round via a fixed four-layer CX schedule,
+    and reads out all data qubits in the X basis. The logical observable is
+    X-bar = product of X over data column 0.
+
+    Geometry is in the frame where the data row index increases SOUTH (row 0 is
+    north) and the column index increases EAST. Data qubits occupy indices
+    0 .. d**2 - 1 (row-major: data(r, c) = r*d + c); ancillas occupy
+    d**2 .. 2*d**2 - 2 (all X-type first, then all Z-type). Top/bottom code
+    boundaries are X-type (weight-2), left/right are Z-type (weight-2).
 
     Parameters
     ----------
+    distance
+        Code distance; must be an odd integer >= 3.
     rounds
         Number of syndrome measurement rounds; must be >= 1.
 
     Returns
     -------
     CodeCircuit
-        circuit has no error channels; inject_dephasing_noise is the sole
-        noise source.
+        ``circuit`` has no error channels; inject_dephasing_noise is the sole
+        noise source. ``n_qubits`` = 2*d**2 - 1, ``n_cycles`` = TICK count + 1.
 
     Raises
     ------
     ValueError
-        If rounds < 1.
+        If ``distance`` is even or < 3, or if ``rounds`` < 1.
     """
+    if distance < 3 or distance % 2 == 0:
+        raise ValueError(f"distance must be an odd integer >= 3, got {distance}")
     if rounds < 1:
         raise ValueError(f"rounds must be >= 1, got {rounds}")
 
+    d = distance
+    n_data = d * d
+    n_total = 2 * d * d - 1
+    m = d * d - 1  # ancillas = measurement records per round
+
+    data_qubits = tuple(range(n_data))
+    ancillas = _build_ancillas(d)
+    anc_qubits = tuple(a.qubit for a in ancillas)
+    x_anc_qubits = [a.qubit for a in ancillas if a.kind == "X"]
+    x_positions = [j for j, a in enumerate(ancillas) if a.kind == "X"]
+
     c = stim.Circuit()
 
-    # ------------------------------------------------------------------
-    # Reset all 17 qubits and prepare data in |+⟩ for X-basis memory
-    # ------------------------------------------------------------------
-    c.append("R", list(range(17)))
-    c.append("H", list(range(9)))
+    # Qubit coordinates (annotation only; larger y = north).
+    for r in range(d):
+        for col in range(d):
+            c.append("QUBIT_COORDS", [r * d + col], [float(col), float(d - 1 - r)])
+    for a in ancillas:
+        c.append("QUBIT_COORDS", [a.qubit], [a.coord[0], a.coord[1]])
+
+    # Reset everything; prepare data in |+> for X-basis memory.
+    c.append("R", list(range(n_total)))
+    c.append("H", list(data_qubits))
     c.append("TICK", [])
 
-    # ------------------------------------------------------------------
-    # Syndrome rounds
-    # ------------------------------------------------------------------
     for t in range(rounds):
-        # X-ancilla prep: rotate into |+⟩
-        c.append("H", [9, 10, 11, 12])
+        # X-ancillas into |+>.
+        c.append("H", x_anc_qubits)
         c.append("TICK", [])
 
-        # Layer A
-        c.append("CX", [9, 1, 11, 7, 10, 5, 6, 15, 4, 13, 8, 14])
-        c.append("TICK", [])
+        # Four CX layers. X-stabs: ancilla controls data. Z-stabs: data controls
+        # ancilla. Each physical qubit appears at most once per layer.
+        for layer in range(4):
+            pairs: list[int] = []
+            for a in ancillas:
+                data_q = a.schedule.get(layer)
+                if data_q is None:
+                    continue
+                if a.kind == "X":
+                    pairs += [a.qubit, data_q]
+                else:
+                    pairs += [data_q, a.qubit]
+            if len(set(pairs)) != len(pairs):
+                raise RuntimeError(
+                    f"CX layer {layer} double-books a qubit at distance {d}; "
+                    f"schedule rule failed to generalize."
+                )
+            if pairs:
+                c.append("CX", pairs)
+            c.append("TICK", [])
 
-        # Layer B
-        c.append("CX", [9, 0, 11, 6, 10, 4, 3, 15, 1, 13, 5, 14])
+        # X-ancillas back to Z basis, then measure-and-reset all ancillas.
+        c.append("H", x_anc_qubits)
         c.append("TICK", [])
-
-        # Layer C
-        c.append("CX", [11, 4, 10, 2, 12, 8, 3, 13, 7, 14, 5, 16])
-        c.append("TICK", [])
-
-        # Layer D
-        c.append("CX", [11, 3, 10, 1, 12, 7, 0, 13, 4, 14, 2, 16])
-        c.append("TICK", [])
-
-        # X-ancilla unprep: rotate back to Z basis
-        c.append("H", [9, 10, 11, 12])
-        c.append("TICK", [])
-
-        # Measure-and-reset all 8 ancillas; records: anc9…anc16
-        c.append("MR", [9, 10, 11, 12, 13, 14, 15, 16])
-        # Immediately after MR: rec[-8]=anc9, rec[-7]=anc10, …, rec[-1]=anc16
+        c.append("MR", list(anc_qubits))
+        # Records: ancillas[j] -> rec(j - m), ascending in list order.
 
         if t == 0:
-            # Round 0: |+⟩^9 is a +1 eigenstate of all X-stabilizers → det = 0.
-            # Z-ancilla outcomes are random on this state; omit to preserve
-            # noiseless determinism.  rec[i-8] for i=0..3 → anc9..anc12.
-            for i in range(4):
-                c.append("DETECTOR", [stim.target_rec(i - 8)])
+            # |+>^(d**2) is a +1 eigenstate of every X-stabilizer -> deterministic.
+            # Z-stabilizer outcomes are random on this state; omit them in round 0.
+            for j in x_positions:
+                c.append("DETECTOR", [stim.target_rec(j - m)])
         else:
-            # Rounds 1…r-1: XOR current with previous round.
-            # rec[i-8]  = ancilla i this round  (i=0 → anc9, i=7 → anc16)
-            # rec[i-16] = ancilla i last round
-            for i in range(8):
+            # XOR each ancilla's outcome with its previous-round outcome.
+            for j in range(m):
                 c.append(
                     "DETECTOR",
-                    [stim.target_rec(i - 16), stim.target_rec(i - 8)],
+                    [stim.target_rec(j - 2 * m), stim.target_rec(j - m)],
                 )
 
-        c.append("TICK", [])  # round boundary
+        c.append("TICK", [])
 
-    # ------------------------------------------------------------------
-    # Readout: measure all data qubits in X basis
-    # ------------------------------------------------------------------
-    c.append("MX", list(range(9)))
-    # Records: rec[-9]=MX(q0), rec[-8]=MX(q1), …, rec[-1]=MX(q8)
-    # Last-round MR shifted by 9:
-    #   anc9_last=rec[-17], anc10_last=rec[-16], anc11_last=rec[-15], anc12_last=rec[-14]
+    # Final X-basis data readout (records: data q -> rec(q - n_data)).
+    c.append("MX", list(data_qubits))
 
-    # Final detector for anc9 — X_{0,1}:  anc9_last ⊕ MX(q0) ⊕ MX(q1)
-    c.append(
-        "DETECTOR",
-        [
-            stim.target_rec(-17),  # anc9_last
-            stim.target_rec(-9),   # MX(q0)
-            stim.target_rec(-8),   # MX(q1)
-        ],
-    )
+    # Final detector per X-ancilla: last syndrome XOR reconstructed X-stabilizer.
+    # Last-round ancilla records are shifted back by n_data MX records.
+    for j in x_positions:
+        a = ancillas[j]
+        targets = [stim.target_rec(j - m - n_data)]
+        targets += [stim.target_rec(q - n_data) for q in a.support]
+        c.append("DETECTOR", targets)
 
-    # Final detector for anc10 — X_{1,2,4,5}:  anc10_last ⊕ MX(q1) ⊕ MX(q2) ⊕ MX(q4) ⊕ MX(q5)
-    c.append(
-        "DETECTOR",
-        [
-            stim.target_rec(-16),  # anc10_last
-            stim.target_rec(-8),   # MX(q1)
-            stim.target_rec(-7),   # MX(q2)
-            stim.target_rec(-5),   # MX(q4)
-            stim.target_rec(-4),   # MX(q5)
-        ],
-    )
+    # Logical observable X-bar = X over data column 0.
+    obs = [stim.target_rec((r * d) - n_data) for r in range(d)]
+    c.append("OBSERVABLE_INCLUDE", obs, 0)
 
-    # Final detector for anc11 — X_{3,4,6,7}:  anc11_last ⊕ MX(q3) ⊕ MX(q4) ⊕ MX(q6) ⊕ MX(q7)
-    c.append(
-        "DETECTOR",
-        [
-            stim.target_rec(-15),  # anc11_last
-            stim.target_rec(-6),   # MX(q3)
-            stim.target_rec(-5),   # MX(q4)
-            stim.target_rec(-3),   # MX(q6)
-            stim.target_rec(-2),   # MX(q7)
-        ],
-    )
-
-    # Final detector for anc12 — X_{7,8}:  anc12_last ⊕ MX(q7) ⊕ MX(q8)
-    c.append(
-        "DETECTOR",
-        [
-            stim.target_rec(-14),  # anc12_last
-            stim.target_rec(-2),   # MX(q7)
-            stim.target_rec(-1),   # MX(q8)
-        ],
-    )
-
-    # Observable: X̄ = X_0 X_3 X_6 (left column)
-    c.append(
-        "OBSERVABLE_INCLUDE",
-        [
-            stim.target_rec(-9),  # MX(q0)
-            stim.target_rec(-6),  # MX(q3)
-            stim.target_rec(-3),  # MX(q6)
-        ],
-        0,
-    )
-
-    # ------------------------------------------------------------------
-    # Metadata
-    # ------------------------------------------------------------------
     flat = c.flattened()
     n_ticks: int = sum(
         1
@@ -230,10 +230,10 @@ def surface_code(rounds: int) -> CodeCircuit:
 
     return CodeCircuit(
         circuit=c,
-        data_qubits=tuple(range(9)),
-        ancilla_qubits=tuple(range(9, 17)),
+        data_qubits=data_qubits,
+        ancilla_qubits=anc_qubits,
         n_qubits=c.num_qubits,
         n_cycles=n_ticks + 1,
         rounds=rounds,
-        distance=3,
+        distance=distance,
     )
