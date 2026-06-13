@@ -155,14 +155,20 @@ def run_point(
     if rounds is None:
         rounds = distance
 
-    n_data = distance * distance
-
     # --- Bare circuit (once) ---------------------------------------------
-    bare = surface_code(distance, rounds)
+    # surface_code returns a CodeCircuit wrapper; the raw stim.Circuit is
+    # code.circuit. The injection layer indexes trajectory ROWS by qubit
+    # index (0..n_qubits-1, ancillas included), so the row axis must span all
+    # qubits, not just the d**2 data qubits. n_cycles (= TICK count + 1) is
+    # the exact number of trajectory COLUMNS the injection layer expects.
+    code = surface_code(distance, rounds)
+    bare = code.circuit
+    n_qubits = code.n_qubits
+    n_cycles = code.n_cycles
 
     # --- Fixed decoder: build ONCE on a constant-p_0 circuit -------------
     # A zero trajectory makes p_{q,k} = clip(p_0 + 0, 0, 1) = p_0 everywhere.
-    const_traj = np.zeros((n_data, rounds), dtype=np.float64)
+    const_traj = np.zeros((n_qubits, n_cycles), dtype=np.float64)
     const_circuit = inject_dephasing_noise(
         bare, const_traj, p_0=p_0, m=m, sigma=sigma, p_meas=p_meas
     )
@@ -181,10 +187,12 @@ def run_point(
         # process.sample returns (n_trajectories, n_steps + 1); take n_data
         # rows as qubits and drop the index-0 stationary point so the cycle
         # axis has exactly `rounds` columns.
-        raw = process.sample(
-            n_steps=rounds, dt=1.0, n_trajectories=n_data, rng=traj_rng
+        # sample n_cycles columns: n_steps = n_cycles - 1 gives n_cycles
+        # columns total (including the initial point), matching the injection
+        # layer's expected width exactly.
+        traj = process.sample(
+            n_steps=n_cycles - 1, dt=1.0, n_trajectories=n_qubits, rng=traj_rng
         )
-        traj = raw[:, 1:]  # (n_data, rounds)
         noisy = inject_dephasing_noise(
             bare, traj, p_0=p_0, m=m, sigma=sigma, p_meas=p_meas
         )
