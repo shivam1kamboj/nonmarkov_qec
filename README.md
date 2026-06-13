@@ -124,3 +124,25 @@ matched-marginal comparison, the rotated CX schedule). The goal is a tool whose 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Related work & attribution
+
+The v1 benchmark — comparing surface-code logical error rates under
+non-Markovian (1/f) versus statistically matched Markovian noise — reproduces
+a known result. The closest prior work is:
+
+> J. F. Kam, S. Gicev, K. Modi, A. Southwell, and M. Usman,
+> "Detrimental non-Markovian errors for surface code memory,"
+> *Quantum Science and Technology* **10**, 035060 (2025).
+> [arXiv:2410.23779](https://arxiv.org/abs/2410.23779) ·
+> [DOI](https://doi.org/10.1088/2058-9565/adebab)
+
+This project is an **independent reproduction**: the noise generator,
+injection layer, and benchmarking harness were built from scratch before the
+author was aware of this paper, and the qualitative threshold-degradation
+result is consistent with theirs. The contribution here is the **software** —
+a from-scratch, tested, documented toolkit (sum-of-OU 1/f generator + Stim
+injection + matched-marginal two-layer Monte Carlo harness) — not a new
+scientific finding.
+
+Related: Phys. Rev. A **112**, 062419 (2025); arXiv:2506.15490.
