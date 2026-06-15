@@ -1,8 +1,8 @@
 """Coarse threshold-bracketing scan with live progress + per-point timing.
 
 Run from repo root with the venv active:
-    python scripts/coarse_scan.py
-Writes docs/figures/coarse_scan.csv incrementally and coarse_scan.png at the end.
+    python scripts/fine_scan.py
+Writes docs/figures/fine_scan.csv incrementally and fine_scan.png at the end.
 """
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ TAU_MAX_CYCLES = 20.0
 TAU_MIN_CYCLES = 0.5
 N_COMPONENTS = 6
 
-P0_GRID = np.array([0.003, 0.005, 0.008, 0.013, 0.02, 0.03, 0.05])
+P0_GRID = np.array([0.0020, 0.0026, 0.0032, 0.0038, 0.0044, 0.0052, 0.0062])
 DISTANCES = [3, 5]
-SHOTS = 400
-N_TRAJ_OU = 80
-N_TRAJ_WHITE = 30
-BASE_SEED = 12345
+SHOTS = 4000
+N_TRAJ_OU = 150
+N_TRAJ_WHITE = 60
+BASE_SEED = 20260615
 
 F_MIN = 1.0 / (2.0 * np.pi * TAU_MAX_CYCLES)
 F_MAX = 1.0 / (2.0 * np.pi * TAU_MIN_CYCLES)
@@ -44,7 +44,7 @@ def main() -> None:
 
     out = Path("docs/figures")
     out.mkdir(parents=True, exist_ok=True)
-    csv_path = out / "coarse_scan.csv"
+    csv_path = out / "fine_scan.csv"
 
     n_total = len(arms) * len(DISTANCES) * len(P0_GRID)
     done = 0
@@ -85,8 +85,8 @@ def main() -> None:
                     )
 
     print(f"\nTotal {time.time() - t_start:.0f}s. Wrote {csv_path}", flush=True)
-    _plot(rows, out / "coarse_scan.png")
-    print(f"Wrote {out / 'coarse_scan.png'}", flush=True)
+    _plot(rows, out / "fine_scan.png")
+    print(f"Wrote {out / 'fine_scan.png'}", flush=True)
 
 
 def _plot(rows: list[SweepPoint], path: Path) -> None:
