@@ -29,7 +29,10 @@ from numpy.typing import NDArray
 
 from nonmarkov_qec.codes.surface_code import surface_code
 from nonmarkov_qec.decoders.matching import matching_from_circuit
-from nonmarkov_qec.noise.injection import inject_dephasing_noise
+from nonmarkov_qec.noise.injection import (
+    compile_injection_template,
+    inject_from_template,
+)
 
 
 class NoiseProcess(Protocol):
@@ -113,7 +116,7 @@ def run_point(
     *,
     m: float,
     sigma: float,
-    p_meas: float,
+    p_meas: float | None = None,
     rounds: int | None = None,
     shots: int,
     n_traj: int,
@@ -154,6 +157,10 @@ def run_point(
     """
     if rounds is None:
         rounds = distance
+    # p_meas defaults to the per-point p_0 (uniform single-rate circuit-
+    # level model), making the threshold well defined in p_0 alone. An
+    # explicit float overrides this (fixed readout noise).
+    p_meas_eff = p_0 if p_meas is None else p_meas
 
     # --- Bare circuit (once) ---------------------------------------------
     # surface_code returns a CodeCircuit wrapper; the raw stim.Circuit is
@@ -166,11 +173,15 @@ def run_point(
     n_qubits = code.n_qubits
     n_cycles = code.n_cycles
 
+    # Precompile the injection template once; reused across every
+    # trajectory at this point (the Monte-Carlo hot path).
+    template = compile_injection_template(bare, p_meas=p_meas_eff)
+
     # --- Fixed decoder: build ONCE on a constant-p_0 circuit -------------
     # A zero trajectory makes p_{q,k} = clip(p_0 + 0, 0, 1) = p_0 everywhere.
     const_traj = np.zeros((n_qubits, n_cycles), dtype=np.float64)
-    const_circuit = inject_dephasing_noise(
-        bare, const_traj, p_0=p_0, m=m, sigma=sigma, p_meas=p_meas
+    const_circuit = inject_from_template(
+        template, const_traj, p_0=p_0, m=m, sigma=sigma
     )
     matching = matching_from_circuit(const_circuit)
 
@@ -193,8 +204,8 @@ def run_point(
         traj = process.sample(
             n_steps=n_cycles - 1, dt=1.0, n_trajectories=n_qubits, rng=traj_rng
         )
-        noisy = inject_dephasing_noise(
-            bare, traj, p_0=p_0, m=m, sigma=sigma, p_meas=p_meas
+        noisy = inject_from_template(
+            template, traj, p_0=p_0, m=m, sigma=sigma
         )
         errors = _decode_errors(noisy, matching, shots, shot_rng)
         rates[i] = errors / shots
@@ -222,7 +233,7 @@ def run_sweep(
     *,
     m: float,
     sigma: float,
-    p_meas: float,
+    p_meas: float | None = None,
     shots: int,
     n_traj: int,
     base_seed: int,

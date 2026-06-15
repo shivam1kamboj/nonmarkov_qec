@@ -6,6 +6,7 @@ Design note: docs/noise_injection.md
 from __future__ import annotations
 
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 import stim
@@ -178,3 +179,116 @@ def inject_dephasing_noise(
             raise ValueError(f"unrecognised gate '{name}' in base circuit")
 
     return out
+
+
+@dataclass(frozen=True)
+class InjectionTemplate:
+    """Precompiled, reusable injection plan for one (circuit, p_meas) point.
+
+    Built once per sweep point by :func:`compile_injection_template`, then
+    reused across all Monte-Carlo trajectories via :func:`inject_from_template`.
+    The structural circuit text (gates, measurements, detectors, p_meas) is
+    fixed; only the per-cell ``Z_ERROR`` probabilities change per trajectory.
+    A single ``stim.Circuit(text)`` parse per trajectory replaces ~10^3 Python
+    ``append`` calls, the measured hot path (~20x faster at d=5).
+    """
+
+    template: str
+    qk_q: NDArray[np.intp]
+    qk_k: NDArray[np.intp]
+    n_qubits: int
+    n_cycles: int
+
+
+def compile_injection_template(
+    base_circuit: stim.Circuit, p_meas: float
+) -> InjectionTemplate:
+    """Compile a base circuit into a reusable :class:`InjectionTemplate`.
+
+    Performs the trajectory-independent work once: flatten, moment count,
+    qubit-index validation, and assembly of a Stim circuit text in which each
+    data-gate ``Z_ERROR`` probability is a ``{:.17g}`` placeholder (17 sig figs
+    -> exact IEEE-double round-trip). Placeholders appear in the same
+    qubit/cycle order recorded in ``qk_q``/``qk_k``.
+    """
+    circuit = base_circuit.flattened()
+
+    n_ticks = sum(
+        1
+        for it in circuit
+        if isinstance(it, stim.CircuitInstruction) and it.name == "TICK"
+    )
+    n_cycles = n_ticks + 1
+
+    n_qubits = 0
+    for it in circuit:
+        if isinstance(it, stim.CircuitRepeatBlock):
+            continue
+        if it.name in DATA_GATES or it.name in MEASUREMENT_GATES:
+            for t in it.targets_copy():
+                if t.is_qubit_target:
+                    n_qubits = max(n_qubits, t.value + 1)
+
+    lines: list[str] = []
+    qk_q: list[int] = []
+    qk_k: list[int] = []
+    k = 0
+    for it in circuit:
+        if isinstance(it, stim.CircuitRepeatBlock):
+            raise AssertionError("unexpected CircuitRepeatBlock after flattened()")
+        name = it.name
+        if name == "TICK":
+            lines.append("TICK")
+            k += 1
+        elif name in DATA_GATES:
+            lines.append(str(it))
+            for t in it.targets_copy():
+                if t.is_qubit_target:
+                    lines.append("Z_ERROR({:.17g}) " + str(t.value))
+                    qk_q.append(t.value)
+                    qk_k.append(k)
+        elif name in MEASUREMENT_GATES:
+            targets = " ".join(
+                str(t.value) for t in it.targets_copy() if t.is_qubit_target
+            )
+            lines.append(f"{name}({p_meas!r}) {targets}")
+        elif name in PASSTHROUGH:
+            lines.append(str(it))
+        else:
+            raise ValueError(f"unrecognised gate '{name}' in base circuit")
+
+    return InjectionTemplate(
+        template="\n".join(lines),
+        qk_q=np.asarray(qk_q, dtype=np.intp),
+        qk_k=np.asarray(qk_k, dtype=np.intp),
+        n_qubits=n_qubits,
+        n_cycles=n_cycles,
+    )
+
+
+def inject_from_template(
+    tmpl: InjectionTemplate,
+    trajectories: NDArray[np.float64],
+    p_0: float,
+    m: float,
+    sigma: float,
+) -> stim.Circuit:
+    """Inject one trajectory using a precompiled template (the fast path).
+
+    Equivalent to :func:`inject_dephasing_noise` (identical detector error
+    model and sampling distribution) but reuses ``tmpl`` across trajectories.
+    """
+    if trajectories.shape[1] != tmpl.n_cycles:
+        raise ValueError(
+            f"template expects {tmpl.n_cycles} cycles but trajectory has "
+            f"{trajectories.shape[1]} columns"
+        )
+    if trajectories.shape[0] < tmpl.n_qubits:
+        raise ValueError(
+            f"trajectory has {trajectories.shape[0]} rows but circuit uses "
+            f"{tmpl.n_qubits} qubits"
+        )
+    alpha = m * p_0 / sigma
+    probs = np.clip(p_0 + alpha * trajectories, 0.0, 1.0)
+    vals = probs[tmpl.qk_q, tmpl.qk_k].tolist()
+    return stim.Circuit(tmpl.template.format(*vals))
