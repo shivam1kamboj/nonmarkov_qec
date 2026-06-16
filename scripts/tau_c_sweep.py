@@ -119,23 +119,30 @@ def main() -> None:
 def _plot(summary, white, path: Path) -> None:
     w_pth, w_lo, w_hi = white
     tau = np.array([s[0] for s in summary])
-    pth = np.array([s[1] for s in summary])
-    lo = np.array([s[2] for s in summary])
-    hi = np.array([s[3] for s in summary])
-    fig, ax = plt.subplots(figsize=(7.5, 5))
-    ax.axhspan(w_lo, w_hi, color="steelblue", alpha=0.18, label="white 95% CI")
-    ax.axhline(w_pth, color="steelblue", lw=1.8, label=r"white $p_{\mathrm{th}}$")
-    ax.errorbar(tau, pth, yerr=[pth - lo, hi - pth], marker="o",
-                capsize=3, color="darkorange", label=r"OU $p_{\mathrm{th}}(\tau_c)$")
-    ax.set_xscale("log")
-    ax.set_xlabel(r"correlation time $\tau_c$ [cycles]")
-    ax.set_ylabel(r"threshold $p_{\mathrm{th}}$")
-    ax.set_title(r"Surface-code threshold vs noise correlation time")
-    ax.legend()
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-
+    pth = np.array([s[1] for s in summary]) * 1e3
+    lo = np.array([s[2] for s in summary]) * 1e3
+    hi = np.array([s[3] for s in summary]) * 1e3
+    style = {"font.family": "serif", "mathtext.fontset": "cm",
+             "axes.labelsize": 13, "axes.titlesize": 14}
+    with plt.rc_context(style):
+        fig, ax = plt.subplots(figsize=(7.2, 4.6))
+        ax.axhspan(w_lo * 1e3, w_hi * 1e3, color="steelblue", alpha=0.16,
+                   lw=0, label="white baseline (95% CI)")
+        ax.axhline(w_pth * 1e3, color="steelblue", lw=1.8,
+                   label=r"white $p_{\mathrm{th}}$")
+        ax.errorbar(tau, pth, yerr=[pth - lo, hi - pth], fmt="o",
+                    color="darkorange", markersize=6.5, markeredgecolor="white",
+                    markeredgewidth=0.8, elinewidth=1.3, capsize=3.5, capthick=1.3,
+                    label=r"$1/f$ (sum-of-OU) $p_{\mathrm{th}}(\tau_c)$")
+        ax.set_xscale("log")
+        ax.set_xlabel(r"Noise correlation time $\tau_c$ (cycles)")
+        ax.set_ylabel(r"Threshold $p_{\mathrm{th}}\,(\times 10^{-3})$")
+        ax.set_title("Surface-code threshold vs. noise correlation time")
+        ax.grid(True, which="both", alpha=0.25, lw=0.6)
+        ax.legend(loc="lower right", framealpha=0.95, edgecolor="0.8")
+        fig.tight_layout()
+        fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
 if __name__ == "__main__":
     main()
