@@ -43,7 +43,7 @@ are Phase 2; do NOT pull them into v1.
 
 ## Tech stack
 
-Python 3.13 in a .venv (3.11+ floor). Stim for stabilizer simulation. PyMatching
+Python 3.13 in a .venv (3.12+ floor). Stim for stabilizer simulation. PyMatching
 for surface-code decoding. NumPy / SciPy for SDE integration. Matplotlib for
 plots. pytest for testing. ruff + mypy strict for lint and types. GitHub Actions
 for CI. MIT license.

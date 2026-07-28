@@ -90,7 +90,7 @@ cd nonmarkov_qec
 pip install -e ".[dev]"
 ```
 
-Requires Python 3.11+. Built on [Stim](https://github.com/quantumlib/Stim) and [PyMatching](https://github.com/oscarhiggott/PyMatching).
+Requires Python 3.12+. Built on [Stim](https://github.com/quantumlib/Stim) and [PyMatching](https://github.com/oscarhiggott/PyMatching).
 
 ## Quickstart
 
