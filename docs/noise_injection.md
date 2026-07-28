@@ -101,10 +101,11 @@ lower clip dominates. In terms of m:
 - **`m > 1.5` is likely invalid** for any `p_0` in the threshold-plot range:
   the clipped and unclipped distributions diverge substantially.
 
-The implementation will warn if the `(p_0, m, sigma)` triple implies that more
-than ~1% of cycle probabilities would be clipped. This is a soft check, not
-a hard error — the user may deliberately explore the nonlinear regime — but
-silence would be misleading.
+The implementation warns if the `(p_0, m, sigma)` triple implies that more
+than 5% of cycle probabilities would be clipped. At `m = 0.5` the clipped
+fraction is ~2.3% (no warning); at `m = 1.0` it is ~15.9% (warning). This is a
+soft check, not a hard error — the user may deliberately explore the nonlinear
+regime — but silence would be misleading.
 
 ## Per-qubit independence: the v1 multi-qubit convention
 
@@ -112,8 +113,8 @@ Each physical qubit `q` gets its own independent noise trajectory `X_q(t)`,
 sampled from the same process parameters `(tau_c, sigma)` or
 `(tau_min, tau_max, n_components, sigma_total)` but with an independent
 random seed. The set of trajectories is therefore a matrix of shape
-`(n_qubits, n_cycles + 1)` as returned by `sample()` (see trajectory shape
-convention below).
+`(n_qubits, n_cycles)`, obtained by requesting `n_steps = n_cycles - 1` from
+`sample()` (see trajectory shape convention below).
 
 **For a single-qubit gate on qubit q at cycle k,** the Z-error probability is
 `p_{q,k}` as above.
@@ -185,7 +186,8 @@ The Markovian baseline can be constructed in two equivalent ways:
    the variance of `p_k` as well as its memory. Mode 1 is the controlled
    comparison; mode 2 is the pure-Markovian reference also sometimes shown.
 
-The headline experiment uses mode 1 for the Markovian baseline: same `(p_0, m)`, same per-cycle variance of `p_k`, only `tau_c` differs. Mode 2 (constant p_0) is included as an additional reference curve on threshold plots.
+The headline experiment uses mode 1 for the Markovian baseline: same `(p_0, m)`, same per-cycle variance of `p_k`, only `tau_c` differs. Mode 2 (constant p_0) is included as an additional reference 
+curve on threshold plots.
 
 ## Stim integration sketch
 
@@ -209,16 +211,22 @@ and index `k >= 1` is the state after `k` time steps of size `dt`.
 
 The injection function expects trajectories of shape `(n_qubits, n_cycles)`,
 where `trajectories[q, k]` is the noise value for qubit `q` at circuit cycle
-`k` (zero-indexed, covering cycles 0 through n_cycles - 1). The initial
-condition at index 0 of `sample()` output is **excluded**: the caller is
-responsible for passing `raw_samples[:, 1:]` to strip it. This convention must
-be documented at the call site to prevent silent off-by-one misalignment between
-the noise trajectory and the circuit cycle it modulates.
+`k` (zero-indexed, covering cycles 0 through n_cycles - 1). The caller
+therefore requests `n_steps = n_cycles - 1` and passes the returned array
+**whole**: column 0 is the initial condition and serves as cycle 0's noise
+value. This is valid because `sample(x0=None)` draws the initial condition
+from the stationary distribution N(0, sigma), making column 0 a legitimate
+stationary sample rather than a special point.
 
-The number of time steps `n_steps` passed to `sample()` must equal `n_cycles`,
-the number of gate cycles in the circuit. The time step `dt` must equal the
-gate cycle duration. Both must be set by the caller; the injection function
-does not infer them.
+An earlier draft of this note prescribed the opposite recipe — oversample by
+one (`n_steps = n_cycles`) and strip column 0 with `raw[:, 1:]`. The two
+recipes are statistically equivalent, and both appear in the codebase:
+`benchmarks/sweep.py` uses the whole-array form documented above, while
+`tests/test_white.py` uses the oversample-and-strip form. Neither is a defect;
+this note now matches the shipped harness.
+
+The time step `dt` must equal the gate cycle duration, and must be set by the
+caller; the injection function does not infer it.
 
 ### Intended API
 
@@ -226,7 +234,7 @@ does not infer them.
 def inject_dephasing_noise(
     base_circuit: stim.Circuit,
     trajectories: np.ndarray,  # shape (n_qubits, n_cycles), X_q(k) for cycle k;
-                               # initial condition excluded (pass sample()[:, 1:])
+                               # includes the initial condition as column 0
     p_0: float,                # mean Z-error rate
     m: float,                  # modulation depth (dimensionless)
     sigma: float,              # noise process stationary std dev

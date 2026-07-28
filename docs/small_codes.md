@@ -167,8 +167,9 @@ across `MR`. Ancilla trajectory rows are therefore physically well-defined.
 ```
 build circuit  ->  n_ticks = circuit.flattened().count("TICK")
 n_cycles = n_ticks + 1
-raw = process.sample(n_steps=n_cycles, dt=dt, n_trajectories=n_qubits, rng=rng)
-trajectories = raw[:, 1:]              # strip x0; shape (n_qubits, n_cycles)
+trajectories = process.sample(
+    n_steps=n_cycles - 1, dt=dt, n_trajectories=n_qubits, rng=rng
+)                                      # shape (n_qubits, n_cycles), col 0 = x0
 noisy = inject_dephasing_noise(circuit, trajectories, p_0, m, sigma, p_meas)
 ```
 

@@ -22,11 +22,12 @@ in **bursts** rather than independently. Two questions follow:
 
 ## Results
 
-The headline experiment measures the rotated surface-code memory threshold under 1/f-type dephasing against a matched white baseline, as a function of correlation time `τ_c`. Holding the marginal 
-per-cycle error process identical and varying only its temporal autocorrelation:
+The headline experiment measures the rotated surface-code memory threshold under temporally correlated dephasing against a matched white baseline, as a function of correlation time `τ_c`. Each `τ_c` 
+point uses a *single* Ornstein–Uhlenbeck process — one Lorentzian, hence one unambiguous correlation time — rather than the sum-of-OU 1/f construction, which spans a band and has no single `τ_c`. 
+The sum-of-OU generator is exercised separately in the fixed-band scans. Holding the marginal per-cycle error process identical and varying only its temporal autocorrelation:
 
-**The threshold is invariant across three decades of correlation time** (`τ_c = 0.2 → 200` gate cycles). The 1/f and white thresholds coincide within bootstrap 95% confidence intervals at `p_th ≈ 
-3.3×10⁻³`, with no trend in `τ_c`.
+**The threshold is invariant across three decades of correlation time** (`τ_c = 0.2 → 200` gate cycles). The correlated and white thresholds coincide within bootstrap 95% confidence intervals at 
+`p_th ≈ 3.3×10⁻³`, with no trend in `τ_c`.
 
 ![Threshold vs noise correlation time](docs/figures/tau_c_sweep.png)
 
@@ -111,22 +112,25 @@ ou = SumOfOUProcess.from_frequency_band(
 )
 white = WhiteNoiseProcess(sigma_total=SIGMA)
 
-grid = np.array([0.003, 0.0035, 0.004])
-rows = run_sweep(
-    ou, model="sum_of_ou", distances=[3, 5], p_0_grid=grid,
-    m=0.5, sigma=SIGMA, p_meas=None, shots=2000, n_traj=80, base_seed=0,
-)
+grid = np.array([0.0026, 0.0032, 0.0038])
 
-def curves(rows, d):
-    pts = sorted((r for r in rows if r.distance == d), key=lambda r: r.p_0)
-    return (np.array([r.p_0 for r in pts]),
-            np.array([r.rate for r in pts]),
-            np.array([r.stderr for r in pts]))
+def threshold(process, model, seed):
+    rows = run_sweep(
+        process, model=model, distances=[3, 5], p_0_grid=grid,
+        m=0.5, sigma=SIGMA, p_meas=None, shots=2000, n_traj=80, base_seed=seed,
+    )
+    def curve(d):
+        pts = sorted((r for r in rows if r.distance == d), key=lambda r: r.p_0)
+        return (np.array([r.p_0 for r in pts]),
+                np.array([r.rate for r in pts]),
+                np.array([r.stderr for r in pts]))
+    p0, r3, s3 = curve(3)
+    _,  r5, s5 = curve(5)
+    return crossing_threshold(p0, r3, s3, r5, s5, rng=np.random.default_rng(0))
 
-p0, r3, s3 = curves(rows, 3)
-_,  r5, s5 = curves(rows, 5)
-est = crossing_threshold(p0, r3, s3, r5, s5, rng=np.random.default_rng(0))
-print(f"threshold p_th = {est.p_th:.4g}  95% CI [{est.ci_lo:.4g}, {est.ci_hi:.4g}]")
+for proc, name, seed in ((white, "markovian", 0), (ou, "sum_of_ou", 1)):
+    est = threshold(proc, name, seed)
+    print(f"{name:10s} p_th = {est.p_th:.4g}  95% CI [{est.ci_lo:.4g}, {est.ci_hi:.4g}]")
 ```
 
 Full sweeps that reproduce the figures: `scripts/fine_scan.py`, `scripts/tau_c_sweep.py`.
@@ -141,7 +145,7 @@ Full sweeps that reproduce the figures: `scripts/fine_scan.py`, `scripts/tau_c_s
 - [x] Parameterized surface code (distance verified at d=3 and d=5) + PyMatching decoder
 - [x] White-noise (Markovian) baseline + matched-marginal validation
 - [x] Two-layer Monte-Carlo harness + bootstrap threshold extraction
-- [x] Headline measurement: threshold vs. correlation time (Markovian vs. 1/f)
+- [x] Headline measurement: threshold vs. correlation time (Markovian vs. correlated)
 - [x] Technical write-up ([`docs/results.md`](docs/results.md))
 
 ### Phase 2 (next)
