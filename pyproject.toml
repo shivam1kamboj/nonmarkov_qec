@@ -27,6 +27,12 @@ dependencies = [
     "pymatching>=2.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/shivam1kamboj/nonmarkov_qec"
+Repository = "https://github.com/shivam1kamboj/nonmarkov_qec"
+Issues = "https://github.com/shivam1kamboj/nonmarkov_qec/issues"
+Documentation = "https://github.com/shivam1kamboj/nonmarkov_qec/blob/main/docs/results.md"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
@@ -38,9 +44,6 @@ notebook = [
     "jupyter>=1.0",
     "seaborn>=0.13",
 ]
-
-[project.urls]
-Repository = "https://github.com/shivam1kamboj/nonmarkov_qec"
 
 [tool.setuptools.packages.find]
 where = ["src"]
