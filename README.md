@@ -8,7 +8,7 @@ pipeline and comparing against a *statistically matched* Markovian baseline.
 
 > **Status — v1 complete.** The full pipeline and benchmarking harness are built and validated end to end: non-Markovian noise generator → Stim noise injection → parameterized surface code → MWPM 
 decoder → two-layer Monte-Carlo threshold sweep → bootstrap threshold extraction. **74 tests passing**, `ruff` + `mypy --strict` clean, CI green. The headline measurement — surface-code threshold 
-vs. noise correlation time — is done; see [**Results**](#results) and [`docs/results.md`](docs/results.md).
+vs. noise correlation time — is done; see [**Results**](#results) and [`docs/results.md`](https://github.com/shivam1kamboj/nonmarkov_qec/blob/main/docs/results.md).
 
 ## Why this is hard
 
@@ -29,12 +29,12 @@ The sum-of-OU generator is exercised separately in the fixed-band scans. Holding
 **The threshold is invariant across three decades of correlation time** (`τ_c = 0.2 → 200` gate cycles). The correlated and white thresholds coincide within bootstrap 95% confidence intervals at 
 `p_th ≈ 3.3×10⁻³`, with no trend in `τ_c`.
 
-![Threshold vs noise correlation time](docs/figures/tau_c_sweep.png)
+![Threshold vs noise correlation time](https://raw.githubusercontent.com/shivam1kamboj/nonmarkov_qec/main/docs/figures/tau_c_sweep.png)
 
 This is a deliberate, defensible result, not a missing one. Using the same matched-marginal methodology, [Kam et al. (2025)](#related-work--attribution) show that *not all* temporal correlations are 
 detrimental — the damaging structures are specifically multi-time "streaky" correlations on **syndrome qubits** and **two-qubit gates**. v1 places correlation on **data-gate** dephasing, 
 **independent per qubit**, with **uncorrelated readout** — precisely their non-detrimental class. The flat `p_th(τ_c)` is a quantitative confirmation of that benign branch; the harmful structures 
-they identify are exactly what v1 does not yet model, and define the Phase 2 roadmap. Full methodology, tables, and the convexity/self-averaging argument: [`docs/results.md`](docs/results.md).
+they identify are exactly what v1 does not yet model, and define the Phase 2 roadmap. Full methodology, tables, and the convexity/self-averaging argument: [`docs/results.md`](https://github.com/shivam1kamboj/nonmarkov_qec/blob/main/docs/results.md).
 
 ## Pipeline
 
@@ -85,9 +85,21 @@ scripts/          scan drivers (coarse, fine, τ_c sweep)
 ## Install
 
 ```bash
+pip install nonmarkov_qec
+```
+
+Or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv add nonmarkov_qec
+```
+
+### From source (development)
+
+```bash
 git clone https://github.com/shivam1kamboj/nonmarkov_qec.git
 cd nonmarkov_qec
-pip install -e ".[dev]"
+uv sync --extra dev          # or: pip install -e ".[dev]"
 ```
 
 Requires Python 3.12+. Built on [Stim](https://github.com/quantumlib/Stim) and [PyMatching](https://github.com/oscarhiggott/PyMatching).
@@ -146,7 +158,7 @@ Full sweeps that reproduce the figures: `scripts/fine_scan.py`, `scripts/tau_c_s
 - [x] White-noise (Markovian) baseline + matched-marginal validation
 - [x] Two-layer Monte-Carlo harness + bootstrap threshold extraction
 - [x] Headline measurement: threshold vs. correlation time (Markovian vs. correlated)
-- [x] Technical write-up ([`docs/results.md`](docs/results.md))
+- [x] Technical write-up ([`docs/results.md`](https://github.com/shivam1kamboj/nonmarkov_qec/blob/main/docs/results.md))
 
 ### Phase 2 (next)
 
@@ -164,7 +176,7 @@ Every module begins as a reviewed design note before any code is written — the
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/shivam1kamboj/nonmarkov_qec/blob/main/LICENSE).
 
 ## Related work & attribution
 
